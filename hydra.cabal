@@ -34,7 +34,9 @@ library
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
     , containers
+    , deepseq
     , directory
     , filepath
     , megaparsec
@@ -58,7 +60,9 @@ executable hydra
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
     , containers
+    , deepseq
     , directory
     , filepath
     , hydra
@@ -84,7 +88,9 @@ test-suite hydra-test
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
     , containers
+    , deepseq
     , directory
     , filepath
     , hydra

@@ -25,6 +25,8 @@ dependencies:
 - text
 - parser-combinators
 - directory
+- bytestring
+- deepseq
 - temporary
 - filepath
 - containers

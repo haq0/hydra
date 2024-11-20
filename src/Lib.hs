@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Lib 
     ( countLines
@@ -42,6 +43,12 @@ import System.ProgressBar
 import qualified System.ProgressBar as PB
 import System.IO (hFlush, stdout)
 import Data.Text (pack)
+import qualified Data.ByteString as BS
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
+import Control.DeepSeq (NFData, force)
+import Data.List (foldl')
 
 type Parser = Parsec Void Text
 
@@ -119,11 +126,11 @@ detectOtherLanguage path =
 detectLanguage :: FilePath -> Maybe Language
 detectLanguage path = 
     let ext = takeExtension path
-    in Map.foldlWithKey' (\acc lang config -> 
-        if ext `elem` lcExtensions config 
-            then Just lang 
-            else acc) (detectOtherLanguage path) languageConfigs
-
+        lookupExt = Map.foldlWithKey' (\acc lang config -> 
+            if ext `elem` lcExtensions config 
+                then Just lang 
+                else acc) Nothing languageConfigs
+    in lookupExt <|> detectOtherLanguage path 
 languageColor :: Language -> Color
 languageColor = \case
     Ada         -> Blue
@@ -194,12 +201,13 @@ data CommentType =
   deriving (Show, Eq)
 
 data FileStats = FileStats
-    { fsBlankLines :: !Int
-    , fsCodeLines :: !Int
-    , fsSingleComments :: !Int
-    , fsMultiComments :: !Int
-    , fsFileCount :: !Int
+    { fsBlankLines :: {-# UNPACK #-} !Int
+    , fsCodeLines :: {-# UNPACK #-} !Int
+    , fsSingleComments :: {-# UNPACK #-} !Int
+    , fsMultiComments :: {-# UNPACK #-} !Int
+    , fsFileCount :: {-# UNPACK #-} !Int
     } deriving (Show, Eq)
+
 
 emptyStats :: FileStats
 emptyStats = FileStats 0 0 0 0 1
@@ -719,24 +727,42 @@ fileParser = do
     lines <- manyTill lineParser eof  
     return lines
 
-processFile :: FilePath -> Bool -> IO FileStats
-processFile path verbose = do
-    contentResult <- E.try $ TIO.readFile path
-    case contentResult of
-        Left (e :: E.SomeException) -> do
-            return emptyStats
-        Right content -> case detectLanguage path of
+processFile :: FilePath -> IO FileStats
+processFile path = do
+    content <- BS.readFile path  -- Use ByteString for faster IO
+    case TE.decodeUtf8' content of
+        Left _ -> return emptyStats
+        Right text -> case detectLanguage path of
             Nothing -> return emptyStats
-            Just language -> do
-                let initialSt = initialState language
-                result <- E.try $ runParserT fileParser path content `evalStateT` initialSt
-                case result of
-                    Left (e :: E.SomeException) -> do
-                        return emptyStats
-                    Right parseResult -> case parseResult of
-                        Left err -> return emptyStats
-                        Right lineTypes -> 
-                            return $ foldl updateStats emptyStats lineTypes
+            Just lang -> do
+                let initialSt = initialState lang
+                    lines = T.lines text  -- Pre-split into lines
+                    stats = processLines lang lines
+                return stats  -- Ensure strict evaluation
+
+processLines :: Language -> [Text] -> FileStats
+processLines lang = foldl' (processLine lang) emptyStats
+
+processLine :: Language -> FileStats -> Text -> FileStats
+processLine lang stats line = 
+    let trimmed = T.strip line
+        isBlank = T.null trimmed
+    in case lang of
+        Other _ -> 
+            if isBlank
+            then stats { fsBlankLines = fsBlankLines stats + 1 }
+            else stats { fsCodeLines = fsCodeLines stats + 1 }
+        _ -> 
+            let config = languageConfigs Map.! lang
+                isSingleComment = any (`T.isPrefixOf` trimmed) (lcSingleLineComment config)
+                isMultiStart = lcMultiLineStart config `T.isPrefixOf` trimmed
+            in if isBlank 
+               then stats { fsBlankLines = fsBlankLines stats + 1 }
+               else if isSingleComment 
+                    then stats { fsSingleComments = fsSingleComments stats + 1 }
+                    else if isMultiStart
+                         then stats { fsMultiComments = fsMultiComments stats + 1 }
+                         else stats { fsCodeLines = fsCodeLines stats + 1 }
 
 
 
@@ -746,42 +772,30 @@ updateStats stats (CodeLine _) = stats { fsCodeLines = fsCodeLines stats + 1 }
 updateStats stats (CommentLine SingleLine) = stats { fsSingleComments = fsSingleComments stats + 1 }
 updateStats stats (CommentLine MultiLine) = stats { fsMultiComments = fsMultiComments stats + 1 }
 
-
-processDirectory :: ProgressBar () -> FilePath -> Bool -> IO (Map Language FileStats)
-processDirectory pb path verbose = do
-    verboseLogF verbose "DIR" $ "Scanning directory: " ++ path
+processDirectory :: ProgressBar () -> FilePath -> IO (Map Language FileStats)
+processDirectory pb path = do
     contents <- listDirectory path
-    verboseLogF verbose "DIR" $ "Found " ++ show (length contents) ++ " entries in " ++ path
-    foldM (processEntry pb verbose) Map.empty contents
+    foldM (processEntry pb) Map.empty contents
   where
-    processEntry :: ProgressBar () -> Bool -> Map Language FileStats -> FilePath -> IO (Map Language FileStats)
-    processEntry pb verbose acc name = do
+    processEntry pb acc name = do
         let fullPath = path </> name
-        verboseLogF verbose "ENTRY" $ "Processing entry: " ++ fullPath
         isFile <- doesFileExist fullPath
         isDir <- doesDirectoryExist fullPath
         case (isFile, isDir) of
             (True, _) -> do
                 case detectLanguage fullPath of
-                    Nothing -> do
-                        verboseLogF verbose "SKIP" $ "Skipping non-source file: " ++ fullPath
-                        return acc
+                    Nothing -> return acc
                     Just lang -> do
-                        verboseLogF verbose "PROCESS" $ "Processing " ++ show lang ++ " file: " ++ fullPath
-                        stats <- processFile fullPath verbose
+                        stats <- processFile fullPath
                         updateProgress pb $ \p -> p { progressDone = progressDone p + 1 }
-                        return $ Map.insertWith combineStats lang stats acc
+                        return $! Map.insertWith combineStats lang stats acc
             (_, True) -> do
-                verboseLogF verbose "DIR" $ "Entering directory: " ++ fullPath
-                subStats <- processDirectory pb fullPath verbose
-                verboseLogF verbose "DIR" $ "Finished directory: " ++ fullPath
-                return $ Map.unionWith combineStats acc subStats
-            _ -> do
-                verboseLogF verbose "SKIP" $ "Skipping invalid path: " ++ fullPath
-                return acc
-combineStats :: FileStats -> FileStats -> FileStats
-combineStats (FileStats b1 c1 s1 m1 f1) (FileStats b2 c2 s2 m2 f2) =
-    FileStats (b1 + b2) (c1 + c2) (s1 + s2) (m1 + m2) (f1 + f2)
+                subStats <- processDirectory pb fullPath
+                return $! Map.unionWith combineStats acc subStats
+            _ -> return acc
+
+
+
 
 countLines :: FilePath -> Bool -> IO (Map Language FileStats)
 countLines path verbose = do
@@ -809,7 +823,7 @@ countLines path verbose = do
     result <- case (isFile, isDir) of
         (True, _) -> do
             verboseLogF verbose "FILE" $ "Processing single file: " ++ path
-            stats <- processFile path verbose
+            stats <- processFile path
             updateProgress pb $ \p -> p { progressDone = progressDone p + 1 }
             case detectLanguage path of
                 Nothing -> do
@@ -820,7 +834,7 @@ countLines path verbose = do
                     return $ Map.singleton lang stats
         (_, True) -> do
             verboseLogF verbose "DIR" $ "Processing directory: " ++ path
-            processDirectory pb path verbose
+            processDirectory pb path
         _ -> do
             verboseLogF verbose "ERROR" $ "Path does not exist: " ++ path
             return Map.empty
@@ -836,7 +850,7 @@ processPathWithProgress pb path resultsRef verbose = do
 
     case (isFile, isDir) of
         (True, _) -> do
-            stats <- processFile path verbose
+            stats <- processFile path
             case detectLanguage path of
                 Nothing -> return ()
                 Just lang -> modifyIORef' resultsRef $ 
@@ -905,4 +919,11 @@ prettyPrint stats = do
                 fsBlankLines
                 (fsSingleComments + fsMultiComments)
                 fsCodeLines
-
+combineStats :: FileStats -> FileStats -> FileStats
+combineStats (FileStats b1 c1 s1 m1 f1) (FileStats b2 c2 s2 m2 f2) =
+    let !b = b1 + b2
+        !c = c1 + c2
+        !s = s1 + s2
+        !m = m1 + m2
+        !f = f1 + f2
+    in FileStats b c s m f
