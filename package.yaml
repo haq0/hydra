@@ -1,0 +1,71 @@
+name:                hydra
+version:             0.1.0.0
+github:              "haq0/hydra"
+license:             AGPL-3
+author:              "haquire"
+maintainer:          "haq@doesnotexist.com"
+copyright:           "2024 haquire"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/haq0/hydra#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- megaparsec
+- text
+- parser-combinators
+- directory
+- temporary
+- filepath
+- containers
+- mtl
+- transformers
+- optparse-applicative
+- terminal-progress-bar
+- ansi-terminal
+- process
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+
+executables:
+  hydra:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - hydra
+
+tests:
+  hydra-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - hydra
