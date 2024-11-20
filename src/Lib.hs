@@ -20,9 +20,10 @@ import Data.IORef
 import System.Console.ANSI (SGR(..), ConsoleLayer(..), ColorIntensity(..), Color(..), setSGR, clearLine, cursorUpLine, setSGRCode, ConsoleIntensity( BoldIntensity ))
 import Control.Concurrent (threadDelay)
 import qualified Data.Text.Lazy as TL
-import Control.Monad (void, forM, MonadPlus, mzero, guard, when, foldM)
+import Control.Monad (void, forM, MonadPlus, mzero, guard, when, foldM, unless)
 import Data.Foldable (for_)
 import Data.Text (Text)
+import qualified Control.Exception as E
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Void
@@ -51,42 +52,135 @@ data ProcessingState = ProcessingState
     } deriving (Show)
 
 data Language = 
-    Haskell
-  | Python
+    Ada
+  | Assembly
+  | AWK
+  | Bash
+  | Basic
   | C
+  | COBOL
   | CPP
-  | JavaScript
+  | CSharp
+  | CSS
+  | D
+  | Dart
+  | Elixir
+  | Elm
+  | Erlang
+  | FSharp
+  | Fortran
+  | Go
+  | Groovy
+  | Haskell
+  | HTML
   | Java
+  | JavaScript
+  | JSON
+  | Julia
+  | Kotlin
+  | Lisp
+  | Lua
+  | MATLAB
+  | Nim
+  | ObjectiveC
+  | OCaml
+  | Pascal
+  | Perl
+  | PHP
+  | PowerShell
+  | Prolog
+  | Python
+  | R
+  | Racket
   | Ruby
   | Rust
-  | Go
-  | Swift
-  | Kotlin
-  | PHP
+  | Scala
+  | Scheme
   | Shell
-  | HTML
-  | CSS
+  | Smalltalk
   | SQL
+  | Swift
+  | Tcl
+  | TypeScript
+  | VB
+  | VHDL
+  | XML
+  | Zig
+  | Other String
   deriving (Show, Eq, Ord)
+
+detectOtherLanguage :: FilePath -> Maybe Language
+detectOtherLanguage path = 
+    let ext = takeExtension path
+    in if ext /= "" 
+       then Just (Other (drop 1 ext))  
+       else Nothing
+
+detectLanguage :: FilePath -> Maybe Language
+detectLanguage path = 
+    let ext = takeExtension path
+    in Map.foldlWithKey' (\acc lang config -> 
+        if ext `elem` lcExtensions config 
+            then Just lang 
+            else acc) (detectOtherLanguage path) languageConfigs
 
 languageColor :: Language -> Color
 languageColor = \case
-    Haskell -> Magenta
-    Python -> Blue
-    C -> Red
-    CPP -> Red
-    JavaScript -> Yellow
-    Java -> Red
-    Ruby -> Red
-    Rust -> Yellow
-    Go -> Cyan
-    Swift -> Green
-    Kotlin -> Green
-    PHP -> Magenta
-    Shell -> Green
-    HTML -> Blue
-    CSS -> Blue
-    SQL -> Cyan
+    Ada         -> Blue
+    Assembly    -> Red
+    AWK         -> Green
+    Bash        -> Green
+    Basic       -> Blue
+    C           -> Red
+    COBOL       -> Blue
+    CPP         -> Red
+    CSharp      -> Magenta
+    CSS         -> Blue
+    D           -> Red
+    Dart        -> Blue
+    Elixir      -> Magenta
+    Elm         -> Blue
+    Erlang      -> Red
+    FSharp      -> Blue
+    Fortran     -> Green
+    Go          -> Cyan
+    Groovy      -> Green
+    Haskell     -> Magenta
+    HTML        -> Blue
+    Java        -> Red
+    JavaScript  -> Yellow
+    JSON        -> Yellow
+    Julia       -> Magenta
+    Kotlin      -> Green
+    Lisp        -> Blue
+    Lua         -> Blue
+    MATLAB      -> Yellow
+    Nim         -> Yellow
+    ObjectiveC  -> Blue
+    OCaml       -> Yellow
+    Pascal      -> Green
+    Perl        -> Blue
+    PHP         -> Magenta
+    PowerShell  -> Blue
+    Prolog      -> Red
+    Python      -> Blue
+    R           -> Blue
+    Racket      -> Red
+    Ruby        -> Red
+    Rust        -> Yellow
+    Scala       -> Red
+    Scheme      -> Blue
+    Shell       -> Green
+    Smalltalk   -> Blue
+    SQL         -> Cyan
+    Swift       -> Green
+    Tcl         -> Yellow
+    TypeScript  -> Blue
+    VB          -> Blue
+    VHDL        -> Green
+    XML         -> Blue
+    Zig         -> Yellow
+    Other _     -> White
 
 data LineType = 
     BlankLine
@@ -147,18 +241,39 @@ countSourceFiles path = do
 
 languageConfigs :: Map Language LangConfig
 languageConfigs = Map.fromList
-    [ (Haskell, LangConfig 
-        { lcExtensions = [".hs", ".lhs"]
+    [ (Ada, LangConfig
+        { lcExtensions = [".ada", ".adb", ".ads"]
         , lcSingleLineComment = ["--"]
-        , lcMultiLineStart = "{-"
-        , lcMultiLineEnd = "-}"
-        , lcNestedComments = True
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
         })
-    , (Python, LangConfig
-        { lcExtensions = [".py"]
+    , (Assembly, LangConfig
+        { lcExtensions = [".asm", ".s", ".S"]
+        , lcSingleLineComment = [";", "#"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (AWK, LangConfig
+        { lcExtensions = [".awk"]
         , lcSingleLineComment = ["#"]
-        , lcMultiLineStart = "\"\"\""
-        , lcMultiLineEnd = "\"\"\""
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (Bash, LangConfig
+        { lcExtensions = [".sh", ".bash", ".zsh", ".fish"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = ": '"
+        , lcMultiLineEnd = "'"
+        , lcNestedComments = False
+        })
+    , (Basic, LangConfig
+        { lcExtensions = [".bas", ".vb", ".vbs"]
+        , lcSingleLineComment = ["'", "REM"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
         , lcNestedComments = False
         })
     , (C, LangConfig
@@ -168,18 +283,109 @@ languageConfigs = Map.fromList
         , lcMultiLineEnd = "*/"
         , lcNestedComments = False
         })
+    , (COBOL, LangConfig
+        { lcExtensions = [".cob", ".cbl", ".cpy"]
+        , lcSingleLineComment = ["*"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
     , (CPP, LangConfig
-        { lcExtensions = [".cpp", ".hpp", ".cc", ".hxx"]
+        { lcExtensions = [".cpp", ".hpp", ".cc", ".hxx", ".cxx"]
         , lcSingleLineComment = ["//"]
         , lcMultiLineStart = "/*"
         , lcMultiLineEnd = "*/"
         , lcNestedComments = False
         })
-    , (JavaScript, LangConfig
-        { lcExtensions = [".js", ".jsx"]
+    , (CSharp, LangConfig
+        { lcExtensions = [".cs"]
         , lcSingleLineComment = ["//"]
         , lcMultiLineStart = "/*"
         , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (CSS, LangConfig
+        { lcExtensions = [".css"]
+        , lcSingleLineComment = []
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (D, LangConfig
+        { lcExtensions = [".d"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = True
+        })
+    , (Dart, LangConfig
+        { lcExtensions = [".dart"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (Elixir, LangConfig
+        { lcExtensions = [".ex", ".exs"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = "@doc \"\"\""
+        , lcMultiLineEnd = "\"\"\""
+        , lcNestedComments = False
+        })
+    , (Elm, LangConfig
+        { lcExtensions = [".elm"]
+        , lcSingleLineComment = ["--"]
+        , lcMultiLineStart = "{-"
+        , lcMultiLineEnd = "-}"
+        , lcNestedComments = True
+        })
+    , (Erlang, LangConfig
+        { lcExtensions = [".erl", ".hrl"]
+        , lcSingleLineComment = ["%"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (FSharp, LangConfig
+        { lcExtensions = [".fs", ".fsx", ".fsi"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "(*"
+        , lcMultiLineEnd = "*)"
+        , lcNestedComments = True
+        })
+    , (Fortran, LangConfig
+        { lcExtensions = [".f", ".f90", ".f95", ".f03"]
+        , lcSingleLineComment = ["!"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (Go, LangConfig
+        { lcExtensions = [".go"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (Groovy, LangConfig
+        { lcExtensions = [".groovy", ".gvy", ".gy", ".gsh"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (Haskell, LangConfig
+        { lcExtensions = [".hs", ".lhs"]
+        , lcSingleLineComment = ["--"]
+        , lcMultiLineStart = "{-"
+        , lcMultiLineEnd = "-}"
+        , lcNestedComments = True
+        })
+    , (HTML, LangConfig
+        { lcExtensions = [".html", ".htm", ".xhtml"]
+        , lcSingleLineComment = []
+        , lcMultiLineStart = "<!--"
+        , lcMultiLineEnd = "-->"
         , lcNestedComments = False
         })
     , (Java, LangConfig
@@ -189,8 +395,134 @@ languageConfigs = Map.fromList
         , lcMultiLineEnd = "*/"
         , lcNestedComments = False
         })
+    , (JavaScript, LangConfig
+        { lcExtensions = [".js", ".jsx", ".mjs"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (JSON, LangConfig
+        { lcExtensions = [".json"]
+        , lcSingleLineComment = []
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (Julia, LangConfig
+        { lcExtensions = [".jl"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = "#="
+        , lcMultiLineEnd = "=#"
+        , lcNestedComments = True
+        })
+    , (Kotlin, LangConfig
+        { lcExtensions = [".kt", ".kts"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = True
+        })
+    , (Lisp, LangConfig
+        { lcExtensions = [".lisp", ".cl", ".el"]
+        , lcSingleLineComment = [";"]
+        , lcMultiLineStart = "#|"
+        , lcMultiLineEnd = "|#"
+        , lcNestedComments = True
+        })
+    , (Lua, LangConfig
+        { lcExtensions = [".lua"]
+        , lcSingleLineComment = ["--"]
+        , lcMultiLineStart = "--[["
+        , lcMultiLineEnd = "]]"
+        , lcNestedComments = False
+        })
+    , (MATLAB, LangConfig
+        { lcExtensions = [".m", ".mat"]
+        , lcSingleLineComment = ["%"]
+        , lcMultiLineStart = "%{"
+        , lcMultiLineEnd = "%}"
+        , lcNestedComments = False
+        })
+    , (Nim, LangConfig
+        { lcExtensions = [".nim"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = "#["
+        , lcMultiLineEnd = "]#"
+        , lcNestedComments = True
+        })
+    , (ObjectiveC, LangConfig
+        { lcExtensions = [".m", ".mm"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (OCaml, LangConfig
+        { lcExtensions = [".ml", ".mli"]
+        , lcSingleLineComment = []
+        , lcMultiLineStart = "(*"
+        , lcMultiLineEnd = "*)"
+        , lcNestedComments = True
+        })
+    , (Pascal, LangConfig
+        { lcExtensions = [".pas", ".pp"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "{"
+        , lcMultiLineEnd = "}"
+        , lcNestedComments = False
+        })
+    , (Perl, LangConfig
+        { lcExtensions = [".pl", ".pm", ".t"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = "=pod"
+        , lcMultiLineEnd = "=cut"
+        , lcNestedComments = False
+        })
+    , (PHP, LangConfig
+        { lcExtensions = [".php"]
+        , lcSingleLineComment = ["//", "#"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (PowerShell, LangConfig
+        { lcExtensions = [".ps1", ".psm1", ".psd1"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = "<#"
+        , lcMultiLineEnd = "#>"
+        , lcNestedComments = False
+        })
+    , (Prolog, LangConfig
+        { lcExtensions = [".pl", ".pro", ".p"]
+        , lcSingleLineComment = ["%"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (Python, LangConfig
+        { lcExtensions = [".py", ".pyw", ".pyx"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = "\"\"\""
+        , lcMultiLineEnd = "\"\"\""
+        , lcNestedComments = False
+        })
+    , (R, LangConfig
+        { lcExtensions = [".r", ".R"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (Racket, LangConfig
+        { lcExtensions = [".rkt"]
+        , lcSingleLineComment = [";"]
+        , lcMultiLineStart = "#|"
+        , lcMultiLineEnd = "|#"
+        , lcNestedComments = True
+        })
     , (Ruby, LangConfig
-        { lcExtensions = [".rb"]
+        { lcExtensions = [".rb", ".rake", ".gemspec"]
         , lcSingleLineComment = ["#"]
         , lcMultiLineStart = "=begin"
         , lcMultiLineEnd = "=end"
@@ -203,9 +535,37 @@ languageConfigs = Map.fromList
         , lcMultiLineEnd = "*/"
         , lcNestedComments = True
         })
-    , (Go, LangConfig
-        { lcExtensions = [".go"]
+    , (Scala, LangConfig
+        { lcExtensions = [".scala", ".sc"]
         , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = True
+        })
+    , (Scheme, LangConfig
+        { lcExtensions = [".scm", ".ss"]
+        , lcSingleLineComment = [";"]
+        , lcMultiLineStart = "#|"
+        , lcMultiLineEnd = "|#"
+        , lcNestedComments = True
+        })
+    , (Shell, LangConfig
+        { lcExtensions = [".sh", ".bash", ".zsh", ".fish"]
+        , lcSingleLineComment = ["#"]
+        , lcMultiLineStart = ": '"
+        , lcMultiLineEnd = "'"
+        , lcNestedComments = False
+        })
+    , (Smalltalk, LangConfig
+        { lcExtensions = [".st"]
+        , lcSingleLineComment = ["\""]
+        , lcMultiLineStart = "\""
+        , lcMultiLineEnd = "\""
+        , lcNestedComments = False
+        })
+    , (SQL, LangConfig
+        { lcExtensions = [".sql"]
+        , lcSingleLineComment = ["--"]
         , lcMultiLineStart = "/*"
         , lcMultiLineEnd = "*/"
         , lcNestedComments = False
@@ -215,48 +575,48 @@ languageConfigs = Map.fromList
         , lcSingleLineComment = ["//"]
         , lcMultiLineStart = "/*"
         , lcMultiLineEnd = "*/"
-        , lcNestedComments = False
+        , lcNestedComments = True
         })
-    , (Kotlin, LangConfig
-        { lcExtensions = [".kt", ".kts"]
-        , lcSingleLineComment = ["//"]
-        , lcMultiLineStart = "/*"
-        , lcMultiLineEnd = "*/"
-        , lcNestedComments = False
-        })
-    , (PHP, LangConfig
-        { lcExtensions = [".php"]
-        , lcSingleLineComment = ["//", "#"]
-        , lcMultiLineStart = "/*"
-        , lcMultiLineEnd = "*/"
-        , lcNestedComments = False
-        })
-    , (Shell, LangConfig
-        { lcExtensions = [".sh", ".bash", ".zsh"]
+    , (Tcl, LangConfig
+        { lcExtensions = [".tcl"]
         , lcSingleLineComment = ["#"]
         , lcMultiLineStart = ""
         , lcMultiLineEnd = ""
         , lcNestedComments = False
         })
-    , (HTML, LangConfig
-        { lcExtensions = [".html", ".htm"]
+    , (TypeScript, LangConfig
+        { lcExtensions = [".ts", ".tsx"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = "/*"
+        , lcMultiLineEnd = "*/"
+        , lcNestedComments = False
+        })
+    , (VB, LangConfig
+        { lcExtensions = [".vb"]
+        , lcSingleLineComment = ["'"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (VHDL, LangConfig
+        { lcExtensions = [".vhd", ".vhdl"]
+        , lcSingleLineComment = ["--"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
+        , lcNestedComments = False
+        })
+    , (XML, LangConfig
+        { lcExtensions = [".xml", ".svg", ".plist"]
         , lcSingleLineComment = []
         , lcMultiLineStart = "<!--"
         , lcMultiLineEnd = "-->"
         , lcNestedComments = False
         })
-    , (CSS, LangConfig
-        { lcExtensions = [".css"]
-        , lcSingleLineComment = []
-        , lcMultiLineStart = "/*"
-        , lcMultiLineEnd = "*/"
-        , lcNestedComments = False
-        })
-    , (SQL, LangConfig
-        { lcExtensions = [".sql"]
-        , lcSingleLineComment = ["--"]
-        , lcMultiLineStart = "/*"
-        , lcMultiLineEnd = "*/"
+    , (Zig, LangConfig
+        { lcExtensions = [".zig"]
+        , lcSingleLineComment = ["//"]
+        , lcMultiLineStart = ""
+        , lcMultiLineEnd = ""
         , lcNestedComments = False
         })
     ]
@@ -361,37 +721,31 @@ fileParser = do
 
 processFile :: FilePath -> Bool -> IO FileStats
 processFile path verbose = do
-    verboseLogF verbose "FILE" $ "Reading file: " ++ path
-    content <- TIO.readFile path
-    case detectLanguage path of
-        Nothing -> do
-            verboseLogF verbose "FILE" $ "No language detected for: " ++ path
+    contentResult <- E.try $ TIO.readFile path
+    case contentResult of
+        Left (e :: E.SomeException) -> do
             return emptyStats
-        Just language -> do
-            verboseLogF verbose "PARSE" $ "Parsing " ++ show language ++ " file: " ++ path
-            let initialSt = initialState language
-            result <- runParserT fileParser path content `evalStateT` initialSt
-            case result of
-                Left err -> do
-                    verboseLogF verbose "ERROR" $ "Parse error in " ++ path ++ ": " ++ show err
-                    return emptyStats
-                Right lineTypes -> do
-                    let stats = foldl updateStats emptyStats lineTypes
-                    verboseLogF verbose "STATS" $ "File statistics for " ++ path ++ ": " ++ show stats
-                    return stats
+        Right content -> case detectLanguage path of
+            Nothing -> return emptyStats
+            Just language -> do
+                let initialSt = initialState language
+                result <- E.try $ runParserT fileParser path content `evalStateT` initialSt
+                case result of
+                    Left (e :: E.SomeException) -> do
+                        return emptyStats
+                    Right parseResult -> case parseResult of
+                        Left err -> return emptyStats
+                        Right lineTypes -> 
+                            return $ foldl updateStats emptyStats lineTypes
+
+
+
 updateStats :: FileStats -> LineType -> FileStats
 updateStats stats BlankLine = stats { fsBlankLines = fsBlankLines stats + 1 }
 updateStats stats (CodeLine _) = stats { fsCodeLines = fsCodeLines stats + 1 }
 updateStats stats (CommentLine SingleLine) = stats { fsSingleComments = fsSingleComments stats + 1 }
 updateStats stats (CommentLine MultiLine) = stats { fsMultiComments = fsMultiComments stats + 1 }
 
-detectLanguage :: FilePath -> Maybe Language
-detectLanguage path = 
-    let ext = takeExtension path
-    in Map.foldlWithKey' (\acc lang config -> 
-        if ext `elem` lcExtensions config 
-            then Just lang 
-            else acc) Nothing languageConfigs
 
 processDirectory :: ProgressBar () -> FilePath -> Bool -> IO (Map Language FileStats)
 processDirectory pb path verbose = do
@@ -500,39 +854,55 @@ hideProgressBar :: IO ()
 hideProgressBar = do
     cursorUpLine 1  
     clearLine      
-
 prettyPrint :: Map Language FileStats -> IO ()
 prettyPrint stats = do
     putStrLn "\nSummary:"
     setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Vivid White]
     putStrLn "Language      Files    Blank   Comment     Code"
     putStrLn "-----------------------------------------------"
-    mapM_ printLangStats (Map.toList stats)
 
-    let totalStats = foldl combineStats emptyStats (Map.elems stats)
-    printTotalStats totalStats
-
+    let (others, knowns) = Map.partitionWithKey (\k _ -> isOther k) stats
+    mapM_ printLangStats (Map.toList knowns)
+    unless (Map.null others) $ printOtherStats (Map.elems others)
+    printTotalStats (foldl combineStats emptyStats (Map.elems stats))
     setSGR [Reset]
   where
+    isOther (Other _) = True
+    isOther _ = False
+
     printLangStats :: (Language, FileStats) -> IO ()
-    printLangStats (lang, FileStats{..}) = do
-        setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Vivid (languageColor lang)]
-        let langStr = take 12 $ show lang ++ replicate 12 ' '
-        printf "%-12s %7d %8d %9d %8d\n" 
-            langStr
-            (fromIntegral fsFileCount :: Int)
-            (fromIntegral fsBlankLines :: Int)
-            (fromIntegral (fsSingleComments + fsMultiComments) :: Int)
-            (fromIntegral fsCodeLines :: Int)
+    printLangStats (lang, FileStats{..}) = let
+        langStr = take 12 $ show lang ++ replicate 12 ' '
+        in do
+            setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Vivid (languageColor lang)]
+            printf "%-12s %7d %8d %9d %8d\n" 
+                langStr
+                fsFileCount
+                fsBlankLines
+                (fsSingleComments + fsMultiComments)
+                fsCodeLines
+
+    printOtherStats :: [FileStats] -> IO ()
+    printOtherStats stats = let
+        combined = foldl combineStats emptyStats stats
+        in do
+            setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Vivid White]
+            printf "%-12s %7d %8d %9d %8d\n"
+                ("Other" :: String)
+                (fsFileCount combined)
+                (fsBlankLines combined)
+                (fsSingleComments combined + fsMultiComments combined)
+                (fsCodeLines combined)
 
     printTotalStats :: FileStats -> IO ()
-    printTotalStats FileStats{..} = do
-        setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Vivid White]
-        putStrLn "-----------------------------------------------"
-        printf "%-12s %7d %8d %9d %8d\n" 
-            ("Total" :: String)
-            (fromIntegral fsFileCount :: Int)
-            (fromIntegral fsBlankLines :: Int)
-            (fromIntegral (fsSingleComments + fsMultiComments) :: Int)
-            (fromIntegral fsCodeLines :: Int)
+    printTotalStats FileStats{..} = let
+        in do
+            setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Vivid White]
+            putStrLn "-----------------------------------------------"
+            printf "%-12s %7d %8d %9d %8d\n" 
+                ("Total" :: String)
+                fsFileCount
+                fsBlankLines
+                (fsSingleComments + fsMultiComments)
+                fsCodeLines
 

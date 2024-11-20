@@ -13,6 +13,7 @@ author:         haquire
 maintainer:     haq@doesnotexist.com
 copyright:      2024 haquire
 license:        AGPL-3
+license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     README.md
