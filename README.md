@@ -5,21 +5,58 @@ Hydra is a fast and accurate source code line counter written in Haskell that su
 ## Features
 
 - Supports multiple programming languages:
+  - Ada
+  - Assembly
+  - AWK
+  - Bash/Shell scripts
+  - Basic/VB
+  - C
+  - COBOL
+  - C++
+  - C#
+  - CSS
+  - D
+  - Dart
+  - Elixir
+  - Elm
+  - Erlang
+  - F#
+  - Fortran
+  - Go
+  - Groovy
   - Haskell
-  - Python
-  - C/C++
-  - JavaScript
+  - HTML
   - Java
+  - JavaScript
+  - JSON
+  - Julia
+  - Kotlin
+  - Lisp
+  - Lua
+  - MATLAB
+  - Nim
+  - Objective-C
+  - OCaml
+  - Pascal
+  - Perl
+  - PHP
+  - PowerShell
+  - Prolog
+  - Python
+  - R
+  - Racket
   - Ruby
   - Rust
-  - Go
-  - Swift
-  - Kotlin
-  - PHP
-  - Shell scripts
-  - HTML
-  - CSS
+  - Scala
+  - Scheme
+  - Smalltalk
   - SQL
+  - Swift
+  - Tcl
+  - TypeScript
+  - VHDL
+  - XML
+  - Zig
 
 - Counts:
   - Code lines
