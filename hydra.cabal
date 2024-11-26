@@ -25,7 +25,14 @@ source-repository head
 
 library
   exposed-modules:
+      Language.Language
       Lib
+      Stats.FileStats
+      Stats.Processing
+      Utils.Console
+      Utils.Filter
+      Utils.License
+      Utils.Parser
   other-modules:
       Paths_hydra
   hs-source-dirs:
