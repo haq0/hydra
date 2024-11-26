@@ -70,6 +70,8 @@ Hydra is a fast and accurate source code line counter written in Haskell that su
   - Direct Git repository analysis
   - Colored output
   - Verbose logging mode
+  - Ignore filters based on directories, hidden directories, or languages.
+  - License detection
 
 ## Installation
 
@@ -83,6 +85,10 @@ Options:
 - `-v, --verbose`: Enable verbose output
 - `--git`: Clone and analyze a Git repository
 - `-h, --help`: Show help message
+- `--ignore-hidden`: Ignores hidden directories
+- `--ignore-dir DIR`: Ignores specified directories
+- `--ignore-lang LANG`: Ignores specified languages
+- `-l`, `--detect-license`: Detects the license (beta)
 
 Examples:
 - Analyze local directory: `hydra ./my-project`
